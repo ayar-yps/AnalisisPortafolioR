@@ -1,0 +1,286 @@
+---
+title: "Análisis de un Portafolio de Acciones"
+author: "Por: Ayar Yuman Paco Sanizo"
+date: "06 de diciembre de 2017"
+output: html_notebook
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Series de Tiempo - Precios de Acciones
+
+A continuación se muestran las series históricas de precios ajustados de las acciones de Apple, Facebook y Google a partir del 18 de mayo de 2012, fecha en que facebook sale a la bolsa de valores.
+
+```{r, include=FALSE}
+# Cargar librerias
+library(quantmod)
+library(PerformanceAnalytics)
+library(dygraphs)
+
+# Captar datos de precios en linea
+getSymbols("AAPL",src="yahoo")
+getSymbols("FB",src="yahoo")
+getSymbols("GOOGL",src="yahoo")
+
+# Calcular retornos semanales
+w.return.AAPL  <- weeklyReturn(AAPL["2012-05-18::"])
+w.return.FB    <- weeklyReturn(FB["2012-05-18::"])
+w.return.GOOGL <- weeklyReturn(GOOGL["2012-05-18::"])
+
+```
+
+```{r, echo=FALSE}
+renderDygraph({
+  dygraph(merge.xts(AAPL[,"AAPL.Adjusted"]["2012-05-18::"],
+                    FB[,"FB.Adjusted"]["2012-05-18::"],
+                    GOOGL[,"GOOGL.Adjusted"]["2012-05-18::"])) 
+})
+
+```
+
+
+# Construcción del Portafolio de Acciones
+
+Ahora construiremos un portafolio hipotético. Defina el número de acciones que hubiera comprado el 18 de mayo de 2012.
+
+```{r, echo=FALSE}
+inputPanel(
+
+  # Portafolio - Definir cantidad acciones compradas y calcular pesos
+  numericInput("acciones_AAPL", "Acciones de Apple:", 5),
+  numericInput("acciones_FB", "Acciones de Facebook:", 5),
+  numericInput("acciones_GOOGL", "Acciones de Google:", 5)
+
+)
+```
+
+## Análisis Descriptivo
+
+A continuación se muestra el retorno del portafolio y el crecimiento que hubiera tenido un dólar invertido a la fecha.
+
+```{r, echo=FALSE}
+fluidRow(
+
+  column(6,
+         renderDygraph({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           # Calcular retorno del portafolio
+           w.return.portafolio <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),weights = w)
+           
+           dygraph(w.return.portafolio,main="Retorno de Portafolio")
+           })
+         ),
+  column(6,
+         renderDygraph({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           # Calcular el crecimiento de un dolar invertido en el portafolio
+           dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+           
+           dygraph(dollar.growth,main = "Crecimiento de un dolar invertido")
+           })
+         )
+)
+```
+
+## Análisis Predictivo
+
+A continuación realizamos un análisis para predecir cuando rendiría un dólar a futuro.
+
+```{r, include=FALSE}
+library(forecast)
+library(tseries)
+```
+
+### Análisis de Autocorrelaciones y Autocorrelaciones Parciales
+
+Primero analizamos las autocorrelaciones y autocorrelaciones parciales de la serie de tiempo considerando posibles diferencias y retardos.
+
+```{r, echo=FALSE}
+sidebarPanel(
+  numericInput("dif", "Diferencias:", 0),
+  numericInput("lag", "Semanas de retardo:", 0)
+)
+
+mainPanel(
+  renderPlot({
+    total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+    w <- c(input$acciones_AAPL,
+         input$acciones_FB,
+         input$acciones_GOOGL)/total.acciones
+    dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+    if(input$lag==0 | input$dif==0){
+      tsdisplay(dollar.growth)
+    }else{
+      tsdisplay(diff(dollar.growth, differences = input$dif, lag =input$lag))   
+    }
+  })
+)
+
+```
+
+### Modelo ARIMA-SARIMA Propuesto
+
+En relación al anterior análisis ahora puede proponer un modelo ARIMA-SARIMA. Introdusca los parámetros que considere adecuados y revise sus resultados.
+
+```{r, echo=FALSE}
+inputPanel(
+  numericInput("p", "p =", 0),
+  numericInput("d", "d =", 0),
+  numericInput("q", "q =", 0)
+)
+
+inputPanel(
+  numericInput("P", "P =", 0),
+  numericInput("D", "D =", 0),
+  numericInput("Q", "Q =", 0),
+  numericInput("periodo", "Periodo =", 0)
+)
+
+renderPrint({
+  total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+  w <- c(input$acciones_AAPL,
+        input$acciones_FB,
+        input$acciones_GOOGL)/total.acciones
+           
+  dollar.growth <- Return.portfolio(
+    merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+              weights = w,wealth.index = T)
+           
+ fit1 <- Arima(dollar.growth,
+               order = c(input$p,input$d,input$q),
+               seasonal = list(order=c(input$P,input$D,input$Q),
+                                       period=input$periodo),
+               include.drift = T)
+ fit1
+})
+
+fluidRow(
+
+  column(6,
+         renderPlot({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+           
+           fit1 <- Arima(dollar.growth,
+                         order = c(input$p,input$d,input$q),
+                         seasonal = list(order=c(input$P,input$D,input$Q),
+                                         period=input$periodo),
+                         include.drift = T)
+           
+           tsdiag(fit1, main='Modelo Propuesto - Diagnóstico')
+           })
+         ),
+  
+  column(6,
+         renderPlot({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           # Calcular el crecimiento de un dolar invertido en el portafolio
+           dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+           
+           fit1 <- Arima(dollar.growth,
+                         order = c(input$p,input$d,input$q),
+                         seasonal = list(order=c(input$P,input$D,input$Q),
+                                         period=input$periodo),
+                         include.drift = T)
+          
+           fcast1 <- forecast(fit1, h=4*6)
+           plot(fcast1, main = "Modelo Propuesto - Pronóstico")
+           })
+         )
+)
+```
+
+### Modelo ARIMA identificado por computador
+
+Finalmente, a continuación se muestran los resultados del modelo ARIMA que identifica la computadora de forma automática. Verifique si su modelo propuesto tiene resultados próximos o mejores.
+
+```{r, echo=FALSE}
+renderPrint({
+  total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+  w <- c(input$acciones_AAPL,
+        input$acciones_FB,
+        input$acciones_GOOGL)/total.acciones
+           
+  dollar.growth <- Return.portfolio(
+    merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+              weights = w,wealth.index = T)
+           
+ fit2 <- auto.arima(dollar.growth)
+ fit2
+})
+
+fluidRow(
+
+  column(6,
+         renderPlot({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+           
+           fit2 <- auto.arima(dollar.growth)
+           
+           tsdiag(fit2, main='Auto Arima - Diagnóstico')
+           })
+         ),
+  
+  column(6,
+         renderPlot({
+           
+           total.acciones <-input$acciones_AAPL+input$acciones_FB+input$acciones_GOOGL
+           w <- c(input$acciones_AAPL,
+                  input$acciones_FB,
+                  input$acciones_GOOGL)/total.acciones
+           
+           # Calcular el crecimiento de un dolar invertido en el portafolio
+           dollar.growth <- Return.portfolio(
+             merge.xts(w.return.AAPL,w.return.FB,w.return.GOOGL),
+             weights = w,wealth.index = T)
+           
+           fit2 <- auto.arima(dollar.growth)
+          
+           fcast2 <- forecast(fit2, h=4*6)
+           plot(fcast2, main = "Auto Arima - Pronóstico")
+           })
+         )
+)
+
+```
+
